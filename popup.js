@@ -157,81 +157,109 @@ function renderFolderList() {
   }
 
   function renderFolderItem(fid, folder, depth) {
-    const children = childrenMap[fid] || [];
-    const willShowChildren = children.length > 0 || pendingNewFolderParent === fid;
-    const isExpanded = expandedFolders.has(fid) || pendingNewFolderParent === fid;
-    const count = getWorkflowCount(fid);
-    const isActive = activeView === 'folder' && activeFolderId === fid;
+  const children = childrenMap[fid] || [];
+  const willShowChildren = children.length > 0 || pendingNewFolderParent === fid;
+  const isExpanded = expandedFolders.has(fid) || pendingNewFolderParent === fid;
+  const count = getWorkflowCount(fid);
+  const isActive = activeView === 'folder' && activeFolderId === fid;
 
-    const li = document.createElement('li');
-    li.className = 'folder-item' + (isActive ? ' active' : '');
-    li.dataset.folderId = fid;
-    li.style.paddingLeft = (10 + depth * 16) + 'px';
+  const li = document.createElement('li');
+  li.className = 'folder-item' + (isActive ? ' active' : '');
+  li.dataset.folderId = fid;
+  li.style.paddingLeft = (10 + depth * 16) + 'px';
 
-    //Guard against bad color values
-    const safeColor = isValidColor(folder.color) ? folder.color : '#64748b';
-    li.innerHTML = `
-      <span class="folder-toggle${willShowChildren ? '' : ' folder-toggle--leaf'}">${willShowChildren ? (isExpanded ? '▾' : '▸') : ''}</span>
-      <span class="folder-dot"></span>
-      <span class="folder-name">${esc(folder.name)}</span>
-      <span class="folder-count">${count}</span>
-      <div class="folder-actions">
-        <button class="icon-btn subfolder" title="New subfolder">&#x2B;</button>
-        <button class="icon-btn rename" title="Rename">&#x270F;</button>
-        <button class="icon-btn delete" title="Delete">&#x2715;</button>
-      </div>
-    `;
-    li.querySelector('.folder-dot').style.background = safeColor;
+  const toggle = document.createElement('span');
+  toggle.className = 'folder-toggle' + (willShowChildren ? '' : ' folder-toggle--leaf');
+  toggle.textContent = willShowChildren ? (isExpanded ? '\u25BE' : '\u25B8') : '';
+  li.appendChild(toggle);
 
-    li.querySelector('.folder-toggle').addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (!willShowChildren && !(childrenMap[fid] && childrenMap[fid].length)) return;
-      if (isExpanded) expandedFolders.delete(fid);
-      else expandedFolders.add(fid);
-      renderFolderList();
-    });
+  const dot = document.createElement('span');
+  dot.className = 'folder-dot';
+  dot.style.background = isValidColor(folder.color) ? folder.color : '#64748b';
+  li.appendChild(dot);
 
-    li.addEventListener('click', (e) => {
-      if (e.target.closest('.folder-actions') || e.target.classList.contains('folder-toggle')) return;
-      setActiveView('folder', fid);
-    });
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'folder-name';
+  nameSpan.textContent = folder.name;
+  li.appendChild(nameSpan);
 
-    li.querySelector('.subfolder').addEventListener('click', (e) => {
-      e.stopPropagation();
-      expandedFolders.add(fid);
-      pendingNewFolderParent = fid;
-      renderFolderList();
-    });
+  const countSpan = document.createElement('span');
+  countSpan.className = 'folder-count';
+  countSpan.textContent = String(count);
+  li.appendChild(countSpan);
 
-    li.querySelector('.rename').addEventListener('click', (e) => {
-      e.stopPropagation();
-      startRename(li, fid, folder.name);
-    });
+  const actions = document.createElement('div');
+  actions.className = 'folder-actions';
 
-    li.querySelector('.delete').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const descendants = getDescendantFolderIds(fid);
-      const hasDesc = descendants.size > 1;
-      const msg = hasDesc
-        ? `Delete "${folder.name}" and all its subfolders?\nAll workflow assignments will be removed.`
-        : `Delete folder "${folder.name}"?\nAll assignments in this folder will be removed.`;
-      if (!confirm(msg)) return;
-      for (const id of descendants) delete orgData.folders[id];
-      for (const wfId of Object.keys(orgData.assignments)) {
-        if (descendants.has(orgData.assignments[wfId])) delete orgData.assignments[wfId];
-      }
-      if (descendants.has(activeFolderId)) setActiveView('all', null);
-      await saveOrgData(orgData);
-      renderFolderList();
-    });
+  const subfolderBtn = document.createElement('button');
+  subfolderBtn.className = 'icon-btn subfolder';
+  subfolderBtn.title = 'New subfolder';
+  subfolderBtn.innerHTML = '&#x2B;'; // static markup, not user data — safe
+  actions.appendChild(subfolderBtn);
 
-    list.appendChild(li);
+  const renameBtn = document.createElement('button');
+  renameBtn.className = 'icon-btn rename';
+  renameBtn.title = 'Rename';
+  renameBtn.innerHTML = '&#x270F;';
+  actions.appendChild(renameBtn);
 
-    // Render children if expanded
-    if (isExpanded) {
-      renderChildren(fid, depth + 1);
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'icon-btn delete';
+  deleteBtn.title = 'Delete';
+  deleteBtn.innerHTML = '&#x2715;';
+  actions.appendChild(deleteBtn);
+
+  li.appendChild(actions);
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!willShowChildren && !(childrenMap[fid] && childrenMap[fid].length)) return;
+    if (isExpanded) expandedFolders.delete(fid);
+    else expandedFolders.add(fid);
+    renderFolderList();
+  });
+
+  li.addEventListener('click', (e) => {
+    if (e.target.closest('.folder-actions') || e.target.classList.contains('folder-toggle')) return;
+    setActiveView('folder', fid);
+  });
+
+  subfolderBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    expandedFolders.add(fid);
+    pendingNewFolderParent = fid;
+    renderFolderList();
+  });
+
+  renameBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    startRename(li, fid, folder.name);
+  });
+
+  deleteBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const descendants = getDescendantFolderIds(fid);
+    const hasDesc = descendants.size > 1;
+    const msg = hasDesc
+      ? `Delete "${folder.name}" and all its subfolders?\nAll workflow assignments will be removed.`
+      : `Delete folder "${folder.name}"?\nAll assignments in this folder will be removed.`;
+    if (!confirm(msg)) return;
+    for (const id of descendants) delete orgData.folders[id];
+    for (const wfId of Object.keys(orgData.assignments)) {
+      if (descendants.has(orgData.assignments[wfId])) delete orgData.assignments[wfId];
     }
+    if (descendants.has(activeFolderId)) setActiveView('all', null);
+    await saveOrgData(orgData);
+    renderFolderList();
+  });
+
+  list.appendChild(li);
+
+  // Render children if expanded
+  if (isExpanded) {
+    renderChildren(fid, depth + 1);
   }
+}
 
   function renderChildren(parentId, depth) {
     for (const [fid, folder] of (childrenMap[parentId] || [])) {

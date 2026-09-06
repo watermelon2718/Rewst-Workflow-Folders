@@ -22,39 +22,31 @@ const ContextMenuModule = (() => {
   return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
   }
 
-  function _buildMenu(workflowIds, x, y) {
-    _removeMenu();
+function _buildMenu(workflowIds, x, y) {
+  _removeMenu();
 
-    const menu = document.createElement('div');
-    menu.id = MENU_ID;
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
+  const menu = document.createElement('div');
+  menu.id = MENU_ID;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
 
-    const isBatch = workflowIds.length > 1;
-    const label = isBatch
-      ? `Assign ${workflowIds.length} workflows to folder`
-      : 'Move to folder';
+  const isBatch = workflowIds.length > 1;
+  const label = isBatch
+    ? `Assign ${workflowIds.length} workflows to folder`
+    : 'Move to folder';
 
-    menu.innerHTML = `<div class="rwf-cm-header">${_escapeHtml(label)}</div>`;
+  const header = document.createElement('div');
+  header.className = 'rwf-cm-header';
+  header.textContent = label;
+  menu.appendChild(header);
 
-    // Current assignment (only shown for single workflow)
-    if (!isBatch) {
-      const currentFolderId = _orgData.assignments[workflowIds[0]];
-      if (currentFolderId) {
-        const removeItem = document.createElement('div');
-        removeItem.className = 'rwf-cm-item rwf-cm-item--remove';
-        removeItem.textContent = 'Remove from folder';
-        removeItem.addEventListener('click', () => {
-          StorageModule.batchAssign(_orgId, workflowIds, null);
-          _removeMenu();
-        });
-        menu.appendChild(removeItem);
-        menu.appendChild(_separator());
-      }
-    } else {
+  // Current assignment (only shown for single workflow)
+  if (!isBatch) {
+    const currentFolderId = _orgData.assignments[workflowIds[0]];
+    if (currentFolderId) {
       const removeItem = document.createElement('div');
       removeItem.className = 'rwf-cm-item rwf-cm-item--remove';
-      removeItem.textContent = 'Remove from all folders';
+      removeItem.textContent = 'Remove from folder';
       removeItem.addEventListener('click', () => {
         StorageModule.batchAssign(_orgId, workflowIds, null);
         _removeMenu();
@@ -62,63 +54,84 @@ const ContextMenuModule = (() => {
       menu.appendChild(removeItem);
       menu.appendChild(_separator());
     }
-
-    // Folder items — depth-first tree order with indentation
-    const folders = _orgData.folders;
-    const flatTree = _buildFlatTree(folders);
-
-    if (flatTree.length === 0) {
-      const emptyMsg = document.createElement('div');
-      emptyMsg.className = 'rwf-cm-empty';
-      emptyMsg.textContent = 'No folders yet';
-      menu.appendChild(emptyMsg);
-    } else {
-      for (const { id: folderId, folder, depth } of flatTree) {
-        const item = document.createElement('div');
-        item.className = 'rwf-cm-item';
-        item.style.paddingLeft = (12 + depth * 14) + 'px';
-
-        // Checkmark if all selected workflows are already in this folder
-        const allInFolder = workflowIds.every(
-          (wfId) => _orgData.assignments[wfId] === folderId
-        );
-
-        //Safeguard against bad color values
-        const safeColor = isValidColor(folder.color) ? folder.color : '#64748b';
-        item.innerHTML = `
-          <span class="rwf-cm-dot"></span>
-          <span>${_escapeHtml(folder.name)}</span>
-          ${allInFolder ? '<span class="rwf-cm-check">&#x2713;</span>' : ''}
-        `;
-        item.querySelector('.rwf-cm-dot').style.background = safeColor;
-
-        item.addEventListener('click', () => {
-          StorageModule.batchAssign(_orgId, workflowIds, folderId);
-          _removeMenu();
-        });
-
-        menu.appendChild(item);
-      }
-    }
-
-    document.body.appendChild(menu);
-
-    // Reposition if menu overflows viewport
-    const rect = menu.getBoundingClientRect();
-    if (rect.right > window.innerWidth) {
-      menu.style.left = (x - rect.width) + 'px';
-    }
-    if (rect.bottom > window.innerHeight) {
-      menu.style.top = (y - rect.height) + 'px';
-    }
-
-    // Dismiss on next interaction
-    setTimeout(() => {
-      document.addEventListener('click', _removeMenu, { once: true });
-      document.addEventListener('contextmenu', _removeMenu, { once: true });
-      document.addEventListener('scroll', _removeMenu, { once: true, passive: true });
-    }, 0);
+  } else {
+    const removeItem = document.createElement('div');
+    removeItem.className = 'rwf-cm-item rwf-cm-item--remove';
+    removeItem.textContent = 'Remove from all folders';
+    removeItem.addEventListener('click', () => {
+      StorageModule.batchAssign(_orgId, workflowIds, null);
+      _removeMenu();
+    });
+    menu.appendChild(removeItem);
+    menu.appendChild(_separator());
   }
+
+  // Folder items — depth-first tree order with indentation
+  const folders = _orgData.folders;
+  const flatTree = _buildFlatTree(folders);
+
+  if (flatTree.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'rwf-cm-empty';
+    emptyMsg.textContent = 'No folders yet';
+    menu.appendChild(emptyMsg);
+  } else {
+    for (const { id: folderId, folder, depth } of flatTree) {
+      const item = document.createElement('div');
+      item.className = 'rwf-cm-item';
+      item.style.paddingLeft = (12 + depth * 14) + 'px';
+
+      const dot = document.createElement('span');
+      dot.className = 'rwf-cm-dot';
+      dot.style.background = isValidColor(folder.color) ? folder.color : '#64748b';
+      item.appendChild(dot);
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = folder.name;
+      item.appendChild(nameSpan);
+
+      // Checkmark if all selected workflows are already in this folder
+      const allInFolder = workflowIds.every(
+        (wfId) => _orgData.assignments[wfId] === folderId
+      );
+      if (allInFolder) {
+        const check = document.createElement('span');
+        check.className = 'rwf-cm-check';
+        check.textContent = '\u2713';
+        item.appendChild(check);
+      }
+
+      item.addEventListener('click', () => {
+        StorageModule.batchAssign(_orgId, workflowIds, folderId);
+        _removeMenu();
+      });
+
+      menu.appendChild(item);
+    }
+  }
+
+  document.body.appendChild(menu);
+
+  // Reposition if menu overflows viewport
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    menu.style.left = (x - rect.width) + 'px';
+  }
+  if (rect.bottom > window.innerHeight) {
+    menu.style.top = (y - rect.height) + 'px';
+  }
+
+  // Dismiss on next interaction
+  setTimeout(() => {
+    document.addEventListener('click', _removeMenu, { once: true });
+    document.addEventListener('contextmenu', _removeMenu, { once: true });
+    document.addEventListener('scroll', _removeMenu, { once: true, passive: true });
+  }, 0);
+}
+
+function isValidColor(c) {
+  return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+}
 
   /** Returns folders in depth-first tree order with their depth level. */
   function _buildFlatTree(folders) {
