@@ -482,6 +482,30 @@ async function init() {
   document.getElementById('export-btn').addEventListener('click', exportFolders);
   document.getElementById('import-btn').addEventListener('click', importFolders);
 
+  const SETTINGS_KEY = 'rwf_settings';
+
+async function loadSettings() {
+  const result = await chrome.storage.local.get(SETTINGS_KEY);
+  return result[SETTINGS_KEY] || { autoExportEnabled: false, autoExportOrgId: null };
+}
+
+async function saveSettings(settings) {
+  await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+}
+
+// ... inside init(), after orgId is resolved:
+const settings = await loadSettings();
+const toggle = document.getElementById('autoexport-toggle');
+toggle.checked = settings.autoExportEnabled && settings.autoExportOrgId === orgId;
+
+toggle.addEventListener('change', async () => {
+  const current = await loadSettings();
+  await saveSettings({
+    autoExportEnabled: toggle.checked,
+    autoExportOrgId: toggle.checked ? orgId : current.autoExportOrgId,
+  });
+});
+
   // Live-update if storage changes while popup is open
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !changes[STORAGE_KEY]) return;
