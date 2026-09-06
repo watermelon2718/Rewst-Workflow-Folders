@@ -336,6 +336,63 @@ function startCreateFolder() {
 
 // ── Backup / Restore ───────────────────────────────────────────────────────
 
+// ── Backup / Restore ───────────────────────────────────────────────────────
+
+function isValidColor(c) {
+  return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+}
+
+/** Validates and sanitizes an imported folders object in place. Returns the same object. */
+function sanitizeImportedFolders(folders) {
+  for (const [id, f] of Object.entries(folders)) {
+    if (!f || typeof f.name !== 'string') { delete folders[id]; continue; }
+    if (!isValidColor(f.color)) f.color = '#64748b';
+  }
+  // Drop dangling/cyclic parentId references
+  for (const [id, f] of Object.entries(folders)) {
+    if (f.parentId && !folders[f.parentId]) {
+      f.parentId = null;
+      continue;
+    }
+    const seen = new Set([id]);
+    let current = f.parentId;
+    while (current) {
+      if (seen.has(current)) { f.parentId = null; break; }
+      seen.add(current);
+      current = folders[current]?.parentId || null;
+    }
+  }
+  return folders;
+}
+
+async function loadSettings() {
+  const result = await chrome.storage.local.get(SETTINGS_KEY);
+  return result[SETTINGS_KEY] || { autoExportEnabled: false, autoExportOrgId: null, lastImportedAt: {} };
+}
+
+async function saveSettings(settings) {
+  await chrome.storage.local.set({ [SETTINGS_KEY]: settings });
+}
+
+function pickJsonFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) { resolve(null); return; }
+      try {
+        resolve(JSON.parse(await file.text()));
+      } catch {
+        alert('Could not read file — make sure it is a valid JSON backup.');
+        resolve(null);
+      }
+    });
+    input.click();
+  });
+}
+
 function exportFolders() {
   const exportData = {
     version: 1,
@@ -356,73 +413,84 @@ function exportFolders() {
   URL.revokeObjectURL(url);
 }
 
-function importFolders() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json,application/json';
-  input.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    let data;
-    try {
-      data = JSON.parse(await file.text());
-    } catch {
-      alert('Could not read file — make sure it is a valid JSON backup.');
-      return;
-    }
+async function importFolders() {
+  const data = await pickJsonFile();
+  if (!data) return;
 
-    if (!data.folders || typeof data.folders !== 'object') {
-      alert('Invalid backup file: missing folders data.');
-      return;
-    }
+  if (!data.folders || typeof data.folders !== 'object') {
+    alert('Invalid backup file: missing folders data.');
+    return;
+  }
 
-    // Sanitize folder entries
-    for (const [id, f] of Object.entries(data.folders)) {
-      if (!f || typeof f.name !== 'string') { delete data.folders[id]; continue; }
-      if (!isValidColor(f.color)) f.color = '#64748b';
-    }
+  sanitizeImportedFolders(data.folders);
 
-    // Drop folders with a parentId that doesn't exist, or that creates a cycle
-    for (const [id, f] of Object.entries(data.folders)) {
-      if (f.parentId && !data.folders[f.parentId]) {
-        f.parentId = null; // orphaned reference — treat as root
-        continue;
-      }
-      // Walk up the parent chain to detect cycles
-      const seen = new Set([id]);
-      let current = f.parentId;
-      while (current) {
-        if (seen.has(current)) {
-          f.parentId = null; // cycle detected — break it
-          break;
-        }
-        seen.add(current);
-        current = data.folders[current]?.parentId || null;
-      }
-    }
+  const folderCount = Object.keys(data.folders).length;
+  const sameOrg = data.orgId === orgId;
 
+  const msg = sameOrg
+    ? `Import ${folderCount} folder(s) and restore workflow assignments?\n\nThis will replace your current folder structure.`
+    : `Import ${folderCount} folder(s) from a different organisation?\n\nFolders will be imported but workflow assignments will be skipped (they belong to a different org). This will replace your current folders.`;
+
+  if (!confirm(msg)) return;
+
+  await applyImport(data, sameOrg);
+}
+
+/**
+ * Low-friction refresh: re-reads the same kind of backup file, but only
+ * prompts if something is ambiguous (different org, or no exportedAt to
+ * compare). If it's clearly a newer export of the current org, applies
+ * it immediately without a confirmation dialog.
+ */
+async function checkForUpdates() {
+  const data = await pickJsonFile();
+  if (!data) return;
+
+  if (!data.folders || typeof data.folders !== 'object') {
+    alert('Invalid backup file: missing folders data.');
+    return;
+  }
+
+  const sameOrg = data.orgId === orgId;
+  const settings = await loadSettings();
+  const lastImportedAt = settings.lastImportedAt || {};
+
+  if (sameOrg && data.exportedAt && lastImportedAt[orgId] === data.exportedAt) {
+    alert('Already up to date — no changes since your last check.');
+    return;
+  }
+
+  sanitizeImportedFolders(data.folders);
+
+  if (!sameOrg) {
+    // Crossing orgs is still ambiguous enough to warrant a confirm.
     const folderCount = Object.keys(data.folders).length;
-    const sameOrg = data.orgId === orgId;
-
-    const msg = sameOrg
-      ? `Import ${folderCount} folder(s) and restore workflow assignments?\n\nThis will replace your current folder structure.`
-      : `Import ${folderCount} folder(s) from a different organisation?\n\nFolders will be imported but workflow assignments will be skipped (they belong to a different org). This will replace your current folders.`;
-
+    const msg = `This file is from a different organisation (${folderCount} folder(s)).\n\nFolders will be imported but workflow assignments will be skipped. Continue?`;
     if (!confirm(msg)) return;
+  }
+  // Same org + newer (or no prior record) → apply without prompting.
 
-    orgData.folders = data.folders;
-    orgData.assignments = sameOrg && data.assignments ? data.assignments : {};
+  await applyImport(data, sameOrg);
 
-    await saveOrgData(orgData);
+  if (data.exportedAt) {
+    const updated = await loadSettings();
+    updated.lastImportedAt = { ...updated.lastImportedAt, [orgId]: data.exportedAt };
+    await saveSettings(updated);
+  }
+}
 
-    expandedFolders.clear();
-    for (const [id, f] of Object.entries(orgData.folders)) {
-      if (!f.parentId) expandedFolders.add(id);
-    }
+async function applyImport(data, sameOrg) {
+  orgData.folders = data.folders;
+  orgData.assignments = sameOrg && data.assignments ? data.assignments : {};
 
-    renderFolderList();
-  });
-  input.click();
+  await saveOrgData(orgData);
+
+  expandedFolders.clear();
+  for (const [id, f] of Object.entries(orgData.folders)) {
+    if (!f.parentId) expandedFolders.add(id);
+  }
+
+  renderFolderList();
 }
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
@@ -481,6 +549,7 @@ async function init() {
   document.getElementById('create-btn').addEventListener('click', startCreateFolder);
   document.getElementById('export-btn').addEventListener('click', exportFolders);
   document.getElementById('import-btn').addEventListener('click', importFolders);
+  document.getElementById('check-updates-btn').addEventListener('click', checkForUpdates);
 
   const SETTINGS_KEY = 'rwf_settings';
 
