@@ -262,6 +262,28 @@
         <button class="backup-btn import-btn" id="import-btn">&#x2912; Import</button>
       </div>
     </div>
+
+    <div class="create-section">
+      <button class="create-btn" id="create-btn">+ New Folder</button>
+      <div class="backup-section">
+        <button class="backup-btn" id="export-btn">&#x2913; Export</button>
+        <button class="backup-btn import-btn" id="import-btn">&#x2912; Import</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="autoexport-section" style="padding: 8px 8px 10px;">
+      <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#94a3b8; cursor:pointer;">
+        <input type="checkbox" id="autoexport-toggle">
+        Auto-export on every change
+      </label>
+      <div style="font-size:10px; color:#475569; margin-top:4px; line-height:1.4;">
+        Writes to your Downloads folder as <code>rewst-folders-&lt;org&gt;.json</code>, overwriting each time. Point your browser's download location at your synced repo folder to keep it version-controlled.
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
   </div>
 
   <script src="popup.js"></script>
